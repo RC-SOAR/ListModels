@@ -1,18 +1,18 @@
--- toolName = "TNS|Model List|TNE"
+-- toolName = "TNS|List models|TNE"
 --
--- Model List (Tools menu script)
+-- List Models (Tools menu script)
 --
 -- Scans /MODELS/*.yml, reads each model's 'header:' block, and pulls out
 -- the 'name' and 'labels' values. Displays "filename: name [labels]" for
 -- every model, scrollable with the radio's nav wheel/rotary/pgup-pgdn keys.
+-- Model list is sorted by model number (if present in the filename) or by filename.
 --
--- Install: copy to /SCRIPTS/TOOLS/model_list.lua on the SD card.
--- Run from: Radio > Tools > Model List
---
--- Tested against the EdgeTX Lua io/dir API, which only exposes:
---   dir(path)            -- iterator over filenames in a directory
---   io.open/io.read/io.close  -- io.read(file, n) reads n bytes, no line mode
--- so files are read in chunks and split into lines manually.
+-- Install: copy to /SCRIPTS/TOOLS/lstmodels.lua on the SD card.
+-- Run from: Radio > Tools > List models
+
+-- Version history
+-- v1.0 2026-09-08 by Mike Shellim and Claude AI.
+-- v1.1 2026-09-19 list sorted by model number if present in the filename, otherwise by filename.
 
 local MODELS_DIR   = "/MODELS"
 local CHUNK_SIZE    = 512
@@ -21,6 +21,7 @@ local LINE_HEIGHT   = 22   -- px per text line; tweak if lines look cramped/spar
 local lineBuffer   = {}    -- rows to display, one string per model
 local scrollOffset = 0     -- index (0-based) of first visible line
 local screenW, screenH
+local strError -- error message if the tool can't perform its scan
 
 --------------------------------------------------------------------------
 -- small string helpers
@@ -58,6 +59,7 @@ local function readFile(path)
   if not f then return nil end
   local parts = {}
   while true do
+---@diagnostic disable-next-line: param-type-mismatch
     local chunk = io.read(f, CHUNK_SIZE)
     if chunk == nil or chunk == "" then break end
     parts[#parts + 1] = chunk
@@ -82,7 +84,7 @@ local function parseHeader(lines)
   local label = ""
 
   local inHeader, headerIndent = false, nil
-  
+
   for _, line in ipairs(lines) do
     local trimmed = trim(line)
 
@@ -112,25 +114,50 @@ local function parseHeader(lines)
   return name, label
 end
 
+-- Pulls the model number out of a filename like "model7.yml" or
+-- "model23.YML". Files that don't match get sorted to the end (by name).
+local function modelNumber(fname)
+  local digits = string.match(fname, "(%d+)%.ya?ml$")
+  return digits and tonumber(digits) or nil
+end
+
 --------------------------------------------------------------------------
 -- scan /MODELS
 --------------------------------------------------------------------------
 
 local function scanModels()
-  lineBuffer = {}
+local entries = {}
+
   for fname in dir(MODELS_DIR) do
-    if string.find (fname, "model[0-9][0-9]?%.yml$") then
+    if string.match(fname, "%.ya?ml$") then
       local content = readFile(MODELS_DIR .. "/" .. fname)
       local row
       if content then
         local name, labels = parseHeader(splitLines(content))
         if name == "" then name = "?" end
-        row = fname .. ", " .. name .. ", " .. (labels ~= "" and labels or "[unlabelled]")
+        row = fname .. ": " .. name .. (labels ~= "" and ", [" .. labels .. "]" or "")
       else
         row = fname .. ": (could not read file)"
       end
-      lineBuffer[#lineBuffer + 1] = row
+      entries[#entries + 1] = { fname = fname, num = modelNumber(fname), row = row }
     end
+  end
+
+  table.sort(entries, function(a, b)
+    if a.num and b.num then
+      return a.num < b.num
+    elseif a.num and not b.num then
+      return true  -- numbered files first
+    elseif b.num and not a.num then
+      return false
+    else
+      return a.fname < b.fname -- sort by name if neither has a number
+    end
+  end)
+
+  lineBuffer = {}
+  for _, e in ipairs(entries) do
+    lineBuffer[#lineBuffer + 1] = e.row
   end
 
   if #lineBuffer == 0 then
@@ -144,6 +171,13 @@ end
 
 local function init()
   screenW, screenH = LCD_W, LCD_H
+  -- simple sanity check for the o/s environment, since the tool relies 
+  -- on various library functions that may not be present in all o/s builds. 
+  -- If any of these are missing, the tool will display an error message instead of crashing.
+  if (not math or not string or not table or not table.sort or not dir or not io) then
+    strError = "o/s env not supported"
+    return
+  end
   scanModels()
 end
 
@@ -163,15 +197,22 @@ local function run(event)
     scrollOffset = math.max(0, scrollOffset - 1)
   elseif event == EVT_VIRTUAL_NEXT or event == EVT_ROT_RIGHT then
     scrollOffset = math.min(maxScroll(), scrollOffset + 1)
-  elseif event == EVT_VIRTUAL_PAGE_UP then
+  elseif event == EVT_VIRTUAL_NEXT_PAGE then
     scrollOffset = math.max(0, scrollOffset - maxVisibleLines())
-  elseif event == EVT_VIRTUAL_PAGE_DOWN then
+  elseif event == EVT_VIRTUAL_PREV_PAGE then
     scrollOffset = math.min(maxScroll(), scrollOffset + maxVisibleLines())
   end
 
   lcd.clear()
 
-  lcd.drawText(2, 2, "Model List (" .. #lineBuffer .. ")", INVERS)
+  -- simple error display if the tool can't scan the models
+  if strError then
+    lcd.drawText(2, 2, "Error:", INVERS)
+    lcd.drawText(2, 2 + LINE_HEIGHT, strError)
+    return 0
+  end
+
+  lcd.drawText(2, 2, "Model list (" .. #lineBuffer .. ")", INVERS)
 
   local y = LINE_HEIGHT
   local visible = maxVisibleLines()

@@ -43,6 +43,16 @@
         "string",
         "math",
         "tonumber",
-        "type"
+        "type",
+        "dir",
+        "EVT_ROT_LEFT",
+        "EVT_VIRTUAL_NEXT",
+        "EVT_ROT_RIGHT",
+        "EVT_VIRTUAL_PAGE_UP",
+        "EVT_VIRTUAL_PAGE_DOWN",
+        "GREY_DEFAULT",
+        "TEXT_COLOR",
+        "EVT_VIRTUAL_NEXT_PAGE",
+        "EVT_VIRTUAL_PREV_PAGE"
     ]
 }
