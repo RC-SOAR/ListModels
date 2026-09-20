@@ -11,8 +11,9 @@
 -- Run from: Radio > Tools > List models
 
 -- Version history
--- v1.0 2026-09-08 by Mike Shellim and Claude AI.
+-- v1.2 2026-09-20 exclude files that don't match the modelNN.yml pattern
 -- v1.1 2026-09-19 list sorted by model number if present in the filename, otherwise by filename.
+-- v1.0 2026-09-08 by Mike Shellim and Claude AI.
 
 local MODELS_DIR   = "/MODELS"
 local CHUNK_SIZE    = 512
@@ -129,7 +130,7 @@ local function scanModels()
 local entries = {}
 
   for fname in dir(MODELS_DIR) do
-    if string.match(fname, "%.ya?ml$") then
+    if string.match(fname, "^model%d+%.ya?ml$") then -- only .yml files of the form modelNN.yml
       local content = readFile(MODELS_DIR .. "/" .. fname)
       local row
       if content then
