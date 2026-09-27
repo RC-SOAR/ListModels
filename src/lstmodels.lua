@@ -10,6 +10,10 @@
 -- Install: copy to /SCRIPTS/TOOLS/lstmodels.lua on the SD card.
 -- Run from: Radio > Tools > List models
 
+-- Copyright (c) Mike Shellim
+-- This script is provided under the GNU General Public License v3.
+-- <https://www.gnu.org/licenses/gpl-3.0.en.html>
+
 -- Version history
 -- v1.2 2026-09-20 exclude files that don't match the modelNN.yml pattern
 -- v1.1 2026-09-19 list sorted by model number if present in the filename, otherwise by filename.
