@@ -13,4 +13,5 @@ Transmitter with colour screen
 ## Installation
 The latest release can be downloaded from:
 https://github.com/RC-SOAR/ListModels/releases/latest
+
 Download the script as directed and follow the instructions.
