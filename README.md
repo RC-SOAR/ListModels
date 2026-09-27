@@ -13,7 +13,4 @@ Transmitter with colour screen
 ## Installation
 The latest release can be downloaded from:
 https://github.com/RC-SOAR/ListModels/releases/latest
-Download the script as directed
-Establish a USB connection between PC and transmitter
-Copy lstmodels.lua to the /SCRIPTS/TOOLS folder on the radio.
-To run the script, go to the SYS > Tools menu and click on List models
+Download the script as directed and follow the instructions.
