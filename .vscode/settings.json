@@ -53,6 +53,7 @@
         "GREY_DEFAULT",
         "TEXT_COLOR",
         "EVT_VIRTUAL_NEXT_PAGE",
-        "EVT_VIRTUAL_PREV_PAGE"
+        "EVT_VIRTUAL_PREV_PAGE",
+        "EVT_VIRTUAL_ENTER"
     ]
 }

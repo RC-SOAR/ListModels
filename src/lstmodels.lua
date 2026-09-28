@@ -5,7 +5,7 @@
 -- Scans /MODELS/*.yml, reads each model's 'header:' block, and pulls out
 -- the 'name' and 'labels' values. Displays "filename: name [labels]" for
 -- every model, scrollable with the radio's nav wheel/rotary/pgup-pgdn keys.
--- Model list is sorted by model number (if present in the filename) or by filename.
+-- Press ENTER to cycle the sort order: model number, name, filename, labels.
 --
 -- Install: copy to /SCRIPTS/TOOLS/lstmodels.lua on the SD card.
 -- Run from: Radio > Tools > List models
@@ -15,13 +15,14 @@
 -- <https://www.gnu.org/licenses/gpl-3.0.en.html>
 
 -- Version history
+-- v1.3 2026-09-28 sortable list: ENTER cycles name / number / labels
 -- v1.2 2026-09-20 exclude files that don't match the modelNN.yml pattern
 -- v1.1 2026-09-19 list sorted by model number if present in the filename, otherwise by filename.
 -- v1.0 2026-09-08 by Mike Shellim and Claude AI.
 
 local MODELS_DIR   = "/MODELS"
 local CHUNK_SIZE    = 512
-local LINE_HEIGHT   = 22   -- px per text line; tweak if lines look cramped/sparse
+local lineHeight           -- px per text line;
 
 local lineBuffer   = {}    -- rows to display, one string per model
 local scrollOffset = 0     -- index (0-based) of first visible line
@@ -127,37 +128,52 @@ local function modelNumber(fname)
 end
 
 --------------------------------------------------------------------------
--- scan /MODELS
+-- sorting
+--
+-- Each comparator returns -1 / 0 / 1. sortEntries() falls back to model
+-- number, then filename, when the primary key ties, which keeps the
+-- ordering strict as table.sort requires.
 --------------------------------------------------------------------------
 
-local function scanModels()
-local entries = {}
+local function cmpStr(a, b)
+  a, b = string.lower(a), string.lower(b)
+  if a < b then return -1 elseif a > b then return 1 end
+  return 0
+end
 
-  for fname in dir(MODELS_DIR) do
-    if string.match(fname, "^model%d+%.ya?ml$") then -- only .yml files of the form modelNN.yml
-      local content = readFile(MODELS_DIR .. "/" .. fname)
-      local row
-      if content then
-        local name, labels = parseHeader(splitLines(content))
-        if name == "" then name = "?" end
-        row = fname .. ": " .. name .. (labels ~= "" and ", [" .. labels .. "]" or "")
-      else
-        row = fname .. ": (could not read file)"
-      end
-      entries[#entries + 1] = { fname = fname, num = modelNumber(fname), row = row }
-    end
+local function cmpNum(a, b)          -- numbered files first
+  if a.num and b.num then
+    if a.num < b.num then return -1 elseif a.num > b.num then return 1 end
+    return 0
+  elseif a.num then return -1
+  elseif b.num then return 1
   end
+  return 0
+end
 
+local function cmpLabels(a, b)       -- models with no labels go last
+  if a.labels == "" and b.labels ~= "" then return 1 end
+  if b.labels == "" and a.labels ~= "" then return -1 end
+  return cmpStr(a.labels, b.labels)
+end
+
+local SORT_MODES = {
+  { title = "model name",     cmp = function(a, b) return cmpStr(a.name, b.name) end },
+  { title = "filename",   cmp = cmpNum },
+  -- { title = "Filename", cmp = function(a, b) return cmpStr(a.fname, b.fname) end },
+  { title = "labels",   cmp = cmpLabels },
+}
+
+local entries  = {}   -- one record per model: fname, num, name, labels, row
+local sortMode = 2    -- default: by model number
+
+local function sortEntries()
+  local primary = SORT_MODES[sortMode].cmp
   table.sort(entries, function(a, b)
-    if a.num and b.num then
-      return a.num < b.num
-    elseif a.num and not b.num then
-      return true  -- numbered files first
-    elseif b.num and not a.num then
-      return false
-    else
-      return a.fname < b.fname -- sort by name if neither has a number
-    end
+    local c = primary(a, b)
+    if c == 0 then c = cmpNum(a, b) end
+    if c == 0 then c = cmpStr(a.fname, b.fname) end
+    return c < 0
   end)
 
   lineBuffer = {}
@@ -168,6 +184,35 @@ local entries = {}
   if #lineBuffer == 0 then
     lineBuffer[1] = "No .yml files found in " .. MODELS_DIR
   end
+  scrollOffset = 0
+end
+
+--------------------------------------------------------------------------
+-- scan /MODELS
+--------------------------------------------------------------------------
+
+local function scanModels()
+  entries = {}
+
+  for fname in dir(MODELS_DIR) do
+    if string.match(fname, "^model%d+%.ya?ml$") then -- only .yml files of the form modelNN.yml
+      local content = readFile(MODELS_DIR .. "/" .. fname)
+      local name, labels, row = "?", "", nil
+      if content then
+        name, labels = parseHeader(splitLines(content))
+        if name == "" then name = "?" end
+        row = fname .. ": " .. name .. (labels ~= "" and ", [" .. labels .. "]" or "")
+      else
+        row = fname .. ": (could not read file)"
+      end
+      entries[#entries + 1] = {
+        fname = fname, num = modelNumber(fname),
+        name = name, labels = labels, row = row,
+      }
+    end
+  end
+
+  sortEntries()
 end
 
 --------------------------------------------------------------------------
@@ -183,12 +228,14 @@ local function init()
     strError = "o/s env not supported"
     return
   end
+  _, lineHeight = lcd.sizeText("X")
+  lineHeight = lineHeight + 2 -- add a little padding so lines don't look cramped
   scanModels()
 end
 
 local function maxVisibleLines()
-  local top = LINE_HEIGHT -- leave room for the title row
-  return math.max(1, math.floor((screenH - top) / LINE_HEIGHT))
+  local top = lineHeight -- leave room for the title row
+  return math.max(1, math.floor((screenH - top) / lineHeight))
 end
 
 local function maxScroll()
@@ -198,6 +245,9 @@ end
 local function run(event)
   if event == EVT_VIRTUAL_EXIT then
     return 1 -- exit the tool
+  elseif event == EVT_VIRTUAL_ENTER and not strError then
+    sortMode = sortMode % #SORT_MODES + 1
+    sortEntries()
   elseif event == EVT_VIRTUAL_PREV or event == EVT_ROT_LEFT then
     scrollOffset = math.max(0, scrollOffset - 1)
   elseif event == EVT_VIRTUAL_NEXT or event == EVT_ROT_RIGHT then
@@ -213,26 +263,27 @@ local function run(event)
   -- simple error display if the tool can't scan the models
   if strError then
     lcd.drawText(2, 2, "Error:", INVERS)
-    lcd.drawText(2, 2 + LINE_HEIGHT, strError)
+    lcd.drawText(2, 2 + lineHeight, strError)
     return 0
   end
 
-  lcd.drawText(2, 2, "Model list (" .. #lineBuffer .. ")", INVERS)
+  lcd.drawText(2, 2, "Models (" .. #entries .. ") sorted by: "
+    .. SORT_MODES[sortMode].title .. "  [ENTER]", INVERS)
 
-  local y = LINE_HEIGHT
+  local y = lineHeight
   local visible = maxVisibleLines()
   for i = 1, visible do
     local idx = scrollOffset + i
     local text = lineBuffer[idx]
     if not text then break end
     lcd.drawText(2, y, text)
-    y = y + LINE_HEIGHT
+    y = y + lineHeight
   end
 
   -- simple scrollbar indicator on the right edge, if there's more than fits
   if #lineBuffer > visible then
     local barX = screenW - 4
-    local trackTop, trackH = LINE_HEIGHT, screenH - LINE_HEIGHT
+    local trackTop, trackH = lineHeight, screenH - lineHeight
     local thumbH = math.max(6, trackH * visible / #lineBuffer)
     local thumbY = trackTop + (trackH - thumbH) * (scrollOffset / maxScroll())
     lcd.drawFilledRectangle(barX, trackTop, 3, trackH, GREY_DEFAULT or 0x8410)
