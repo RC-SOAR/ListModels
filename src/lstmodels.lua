@@ -23,7 +23,6 @@
 local MODELS_DIR   = "/MODELS"
 local CHUNK_SIZE    = 512
 local lineHeight           -- px per text line;
-
 local lineBuffer   = {}    -- rows to display, one string per model
 local scrollOffset = 0     -- index (0-based) of first visible line
 local screenW, screenH
@@ -221,6 +220,15 @@ end
 
 local function init()
   screenW, screenH = LCD_W, LCD_H
+
+  -- determine the height of a text line in pixels, so we can calculate how many lines fit on the screen
+  if lcd.sizeText then
+    _, lineHeight = lcd.sizeText("X") 
+    lineHeight = lineHeight + 2 -- add a little padding so lines don't look cramped
+  else
+    lineHeight = 8 -- default to 8px if sizeText fails 
+  end
+  
   -- simple sanity check for the o/s environment, since the tool relies 
   -- on various library functions that may not be present in all o/s builds. 
   -- If any of these are missing, the tool will display an error message instead of crashing.
@@ -228,8 +236,7 @@ local function init()
     strError = "o/s env not supported"
     return
   end
-  _, lineHeight = lcd.sizeText("X")
-  lineHeight = lineHeight + 2 -- add a little padding so lines don't look cramped
+
   scanModels()
 end
 
@@ -262,8 +269,7 @@ local function run(event)
 
   -- simple error display if the tool can't scan the models
   if strError then
-    lcd.drawText(2, 2, "Error:", INVERS)
-    lcd.drawText(2, 2 + lineHeight, strError)
+    lcd.drawText(2, 2, strError)
     return 0
   end
 
