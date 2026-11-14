@@ -15,6 +15,7 @@
 -- <https://www.gnu.org/licenses/gpl-3.0.en.html>
 
 -- Version history
+-- v1.4 2026-11-14 refactored to use a table of comparators for sorting (Claude was hallucinating)
 -- v1.3 2026-09-28 sortable list: ENTER cycles name / number / labels
 -- v1.2 2026-09-20 exclude files that don't match the modelNN.yml pattern
 -- v1.1 2026-09-19 list sorted by model number if present in the filename, otherwise by filename.
@@ -33,7 +34,7 @@ local strError -- error message if the tool can't perform its scan
 --------------------------------------------------------------------------
 
 local function trim(s)
-  return (string.gsub(s, "^%s*(.-)%s*$", "%1"))
+  return (string.match(s, "^%s*(.-)%s*$"))
 end
 
 local function stripQuotes(s)
@@ -129,25 +130,30 @@ end
 --------------------------------------------------------------------------
 -- sorting
 --
--- Each comparator returns -1 / 0 / 1. sortEntries() falls back to model
--- number, then filename, when the primary key ties, which keeps the
--- ordering strict as table.sort requires.
+-- Each comparator returns -1 / 0 / 1. 
 --------------------------------------------------------------------------
 
 local function cmpStr(a, b)
-  a, b = string.lower(a), string.lower(b)
-  if a < b then return -1 elseif a > b then return 1 end
-  return 0
+    a, b = string.lower(a), string.lower(b)
+    if a < b then return -1
+    elseif a > b then return 1
+    end
+    return 0
+end
+
+local function cmpFname(a, b)
+  return cmpStr(a.fname, b.fname)
 end
 
 local function cmpNum(a, b)          -- numbered files first
   if a.num and b.num then
-    if a.num < b.num then return -1 elseif a.num > b.num then return 1 end
+    if a.num < b.num then return -1
+    elseif a.num > b.num then return 1
+    end
     return 0
   elseif a.num then return -1
-  elseif b.num then return 1
+  else return 1
   end
-  return 0
 end
 
 local function cmpLabels(a, b)       -- models with no labels go last
@@ -156,24 +162,32 @@ local function cmpLabels(a, b)       -- models with no labels go last
   return cmpStr(a.labels, b.labels)
 end
 
+local function cmpName(a, b)
+  return cmpStr(a.name, b.name)
+end
+
 local SORT_MODES = {
-  { title = "model name",     cmp = function(a, b) return cmpStr(a.name, b.name) end },
-  { title = "filename",   cmp = cmpNum },
-  -- { title = "Filename", cmp = function(a, b) return cmpStr(a.fname, b.fname) end },
-  { title = "labels",   cmp = cmpLabels },
+  { title = "model name", cmps = { cmpName, cmpNum } },
+  { title = "filename",   cmps = { cmpNum, cmpFname } },
+  { title = "labels",   cmps = { cmpLabels, cmpName } },
 }
 
 local entries  = {}   -- one record per model: fname, num, name, labels, row
-local sortMode = 2    -- default: by model number
+local sortMode = 2    -- default: by filename
 
+-- Sort entries table, repeatedly using comparators in priority order 
+-- until a non-zero result is found. Then rebuild the lineBuffer
 local function sortEntries()
-  local primary = SORT_MODES[sortMode].cmp
-  table.sort(entries, function(a, b)
-    local c = primary(a, b)
-    if c == 0 then c = cmpNum(a, b) end
-    if c == 0 then c = cmpStr(a.fname, b.fname) end
-    return c < 0
-  end)
+  local cmps = SORT_MODES[sortMode].cmps
+  table.sort(entries,
+    function(a, b)
+      for i = 1, #cmps do
+        local c = cmps[i](a, b)
+        if c ~= 0 then return c < 0 end
+      end
+      return false
+    end
+  )
 
   lineBuffer = {}
   for _, e in ipairs(entries) do
@@ -194,7 +208,7 @@ local function scanModels()
   entries = {}
 
   for fname in dir(MODELS_DIR) do
-    if string.match(fname, "^model%d+%.ya?ml$") then -- only .yml files of the form modelNN.yml
+    if string.match(fname, "^model%d+%.ya?ml$") then -- only .yml files of the form modelN.yml
       local content = readFile(MODELS_DIR .. "/" .. fname)
       local name, labels, row = "?", "", nil
       if content then
